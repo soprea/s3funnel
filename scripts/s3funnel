@@ -15,8 +15,6 @@ Key Operations:
     COPY   Copy keys to the bucket from another bucket.
 
 Bucket Operations:
-    CREATE Create a new bucket
-    DROP   Delete an existing bucket (must be empty)
     LIST   List keys in the bucket. If no bucket is given, buckets will be listed.
 """
 
@@ -63,7 +61,7 @@ def main():
     parser = OptionParser(usage)
     parser.add_option("-a", "--aws_key",    dest="aws_key", type="string", help="Overrides AWS_ACCESS_KEY_ID environment variable")
     parser.add_option("-s", "--aws_secret_key", dest="aws_secret_key", type="string", help="Overrides AWS_SECRET_ACCESS_KEY environment variable")
-    parser.add_option("-t", "--threads",    dest="numthreads", default=5, type="int", metavar="N", help="Number of threads to use [default: %default]")
+    parser.add_option("-t", "--threads",    dest="numthreads", default=10, type="int", metavar="N", help="Number of threads to use [default: %default]")
     parser.add_option("-T", "--timeout",    dest="timeout", default=30, type="float", metavar="SECONDS", help="Socket timeout time, 0 is never [default: %default]")
     parser.add_option("--insecure",         dest="secure", action="store_false", default=True, help="Don't use secure (https) connection")
     parser.add_option("--list-marker",      dest="list_marker", type="string", default=None, metavar="KEY", help="(`list` only) Start key for list operation")
@@ -80,6 +78,7 @@ def main():
     parser.add_option("-i", "--input",      dest="input", type="string", metavar="FILE", help="Read one file per line from a FILE manifest")
     parser.add_option("-v", "--verbose",    dest="verbose", action="count", default=None, help="Enable verbose output. Use twice to enable debug output")
     parser.add_option("--version",          dest="version", action="store_true", help="Output version information and exit")
+    parser.add_option("-d", "--dry-run",    dest="dry_run", action="store_true", help="Only show what should be uploaded or downloaded but don't actually do it. May still perform S3 requests to get bucket listings and other information though (only for file transfer commands)")
 
     # Deprecated options (for backwards compatibility)
     parser.add_option("--start_key",        dest="list_marker", type="string", default=None, help=SUPPRESS_HELP)
@@ -131,6 +130,7 @@ def main():
     if len(args) < 1:
         parser.error("BUCKET not specified")
     bucket = args[0]
+    bucket_prefix = None
     _re = re.compile("^s3://([^/]+)/?(.*)", re.IGNORECASE)
     match = _re.match(bucket)
     if match:
@@ -181,9 +181,9 @@ def main():
               'del_prefix': options.del_prefix,
               'headers': headers,
               'numthreads': options.numthreads,
+              'dry_run': options.dry_run or False,
               'ignore_s3fs_dirs': options.ignore_s3fs_dirs
               }
-
     funnel = S3Funnel(**config)
 
     # Setup operation mapping
@@ -195,12 +195,11 @@ def main():
     }
 
     methods_bucket = {
-       'list':   funnel.list_bucket,
-       'ls':   funnel.list_bucket
+       'list':   funnel.list_bucket
     }
 
     methods_global = {
-       'show':   funnel.show_buckets,
+       'show':   funnel.show_buckets
     }
 
     valid_operations = methods_keys.keys() + methods_bucket.keys() + methods_global.keys()

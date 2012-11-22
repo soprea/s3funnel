@@ -32,33 +32,38 @@ class JobError(Exception):
 class GetJob(Job):
     "Download the given key from S3."
     def __init__(self, bucket, key, failed, config={}):
+        log.info
         self.bucket = bucket
         self.key = key
         self.failed = failed
         self.retries = config.get('retry', 5)
         self.ignore_s3fs_dirs = config.get('ignore_s3fs_dirs',True)
+        self.dry_run = config.get('dry_run')
 
     def _do(self, toolbox):
         for i in xrange(self.retries):
             try:
                 b = toolbox.get_bucket(self.bucket)
-                    
+
                 b.connection.provider.metadata_prefix = ''
                 k = b.get_key(self.key)
                 m = k.get_metadata('content-type')
-                
+
                 if m == 'application/x-directory' and self.ignore_s3fs_dirs:
                      log.warn("Skipping s3fs directory: %s" % self.key)
                      return
                 try:
                     # Create directories in case key has "/"
-                    if os.path.dirname(self.key) and not os.path.exists(os.path.dirname(self.key)):
+                    if not self.dry_run and os.path.dirname(self.key) and not os.path.exists(os.path.dirname(self.key)):
                         os.makedirs(os.path.dirname(self.key))
                 except OSError:
                     pass
+                if self.dry_run:
+                    log.info("DRY RUN: GET s3://%s/%s", self.bucket, self.key)
+                    return
                 # Note: This creates a file, even if the download fails
                 k.get_contents_to_filename(self.key)
-                log.info("Got: %s" % self.key)
+                log.info("GET s3://%s/%s", self.bucket, self.key)
                 return
             except S3ResponseError, e:
                 if e.status == 404:
@@ -99,8 +104,8 @@ class PutJob(Job):
         self.key = "%s%s" % (self.add_prefix, self.path)
         # --del-prefix logic
         self.del_prefix = config.get('del_prefix')
-        if self.del_prefix and self.key.startswith(self.del_prefix): 
-            self.key = self.key.replace(self.del_prefix, '', 1)    
+        if self.del_prefix and self.key.startswith(self.del_prefix):
+            self.key = self.key.replace(self.del_prefix, '', 1)
         if not config.get('put_full_path'):
             self.key = os.path.basename(self.key)
         self.retries = config.get('retry', 5)
@@ -111,6 +116,7 @@ class PutJob(Job):
             log.warning("Bad ACL `%s` for key, setting to `private`: %s" % (self.acl, self.key))
             acl = 'private'
         self.headers['x-amz-acl'] = acl
+        self.dry_run = config.get('dry_run')
 
     def _is_new(self, bucket, key):
         # Get existing key etag
@@ -137,10 +143,12 @@ class PutJob(Job):
                 if self.only_new and not self._is_new(bucket, self.key):
                     log.info("Already exists, skipped: %s" % self.key)
                     return
-
+                if self.dry_run:
+                    log.info("DRY RUN: PUT %s to s3://%s/%s", self.path, self.bucket, self.key)
+                    return
                 k = bucket.new_key(self.key)
                 k.set_contents_from_filename(self.path, self.headers)
-                log.info("Sent: %s" % self.key)
+                log.info("PUT %s to s3://%s/%s", self.path, self.bucket, self.key)
                 return
             except S3ResponseError, e:
                 log.warning("Connection lost, reconnecting and retrying...")
@@ -172,12 +180,16 @@ class DeleteJob(Job):
         self.key = key
         self.failed = failed
         self.retries = config.get('retry', 5)
+        self.dry_run = config.get('dry_run')
 
     def _do(self, toolbox):
         for i in xrange(self.retries):
             try:
-                k = toolbox.get_bucket(self.bucket).delete_key(self.key)
-                log.info("Deleted: %s" % self.key)
+                if self.dry_run:
+                    log.info("DRY RUN: DELETE s3://%s/%s", self.bucket, self.key)
+                    return
+                toolbox.get_bucket(self.bucket).delete_key(self.key)
+                log.info("DELETE s3://%s/%s", self.bucket, self.key)
                 return
             except S3ResponseError, e:
                 log.warning("Connection lost, reconnecting and retrying...")
@@ -197,7 +209,7 @@ class DeleteJob(Job):
             self.failed.put(self.key)
         except Exception, e:
             self.failed.put(e)
-            
+
 class CopyJob(Job):
     "Copy the given key from another bucket."
     def __init__(self, bucket, key, failed, config={}):
@@ -208,17 +220,21 @@ class CopyJob(Job):
         self.dest_key = "%s%s" % (self.add_prefix, key)
         # --del-prefix logic
         self.del_prefix = config.get('del_prefix')
-        if self.del_prefix and self.dest_key.startswith(self.del_prefix): 
+        if self.del_prefix and self.dest_key.startswith(self.del_prefix):
             self.dest_key = self.dest_key.replace(self.del_prefix, '', 1)
         self.source_bucket = config.get('source_bucket')
         self.failed = failed
         self.retries = config.get('retry', 5)
-        
+        self.dry_run = config.get('dry_run')
+
     def _do(self, toolbox):
         for i in xrange(self.retries):
             try:
-                k = toolbox.get_bucket(self.bucket).copy_key(self.dest_key, self.source_bucket, self.key)
-                log.info("Copied: %s to %s" % (self.key, self.dest_key))
+                if self.dry_run:
+                    log.info("DRY RUN: COPY s3://%s/%s to s3://%s/%s", self.source_bucket, self.key, self.bucket, self.key)
+                    return
+                toolbox.get_bucket(self.bucket).copy_key(self.dest_key, self.source_bucket, self.key)
+                log.info("DRY RUN: COPY s3://%s/%s to s3://%s/%s", self.source_bucket, self.key, self.bucket, self.key)
                 return
             except S3ResponseError, e:
                 log.warning("Connection lost, reconnecting and retrying...")
@@ -230,11 +246,11 @@ class CopyJob(Job):
                 time.sleep((2 ** i) / 4.0) # Exponential backoff
 
         log.error("Failed to copy: %s" % self.key)
-        
+
     def run(self, toolbox):
         try:
             self._do(toolbox)
         except JobError, e:
             self.failed.put(self.key)
         except Exception, e:
-            self.failed.put(e)        
+            self.failed.put(e)

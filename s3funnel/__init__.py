@@ -204,9 +204,12 @@ class S3Funnel(object):
 
         failed = Queue()
         pool = self._get_pool()
+        jcount = 0
         for k in ikeys:
             j = GetJob(bucket, k, failed, c)
             pool.put(j)
+            jcount = jcount + 1
+        log.info("Send %s jobs to queue", jcount)
         pool.join()
 
         return collapse_queue(failed)
