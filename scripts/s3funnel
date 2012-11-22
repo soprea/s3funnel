@@ -26,7 +26,7 @@ __VERSION__ = '0.6.5'
 TODO:
 * Use callback to do an interactive progress bar
 """
-
+import sys
 import logging
 
 log = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ import signal
 import threading
 import socket
 import httplib
+import re
 
 from glob import glob
 from optparse import OptionParser, SUPPRESS_HELP
@@ -67,7 +68,7 @@ def main():
     parser.add_option("--insecure",         dest="secure", action="store_false", default=True, help="Don't use secure (https) connection")
     parser.add_option("--list-marker",      dest="list_marker", type="string", default=None, metavar="KEY", help="(`list` only) Start key for list operation")
     parser.add_option("--list-prefix",      dest="list_prefix", type="string", default=None, metavar="STRING", help="(`list` only) Limit results to a specific prefix")
-    parser.add_option("--list-delimiter",   dest="list_delimiter", type="string", default=None, metavar="CHAR", help="(`list` only) Treat value as a delimiter for hierarchical listing")
+    parser.add_option("--list-delimiter",   dest="list_delimiter", type="string", default="/", metavar="CHAR", help="(`list` only) Treat value as a delimiter for hierarchical listing")
     parser.add_option("--put-acl",          dest="acl", type="string", default="private", help="(`put` only) Set the ACL permission for each file [default: %default]")
     parser.add_option("--put-full-path",    dest="put_full_path", action="store_true", default=True, help="(`put` only) Use the full given path as the key name, instead of just the basename")
     parser.add_option("--put-only-new",     dest="put_only_new", action="store_true", default=True, help="(`put` only) Only PUT keys which don't already exist in the bucket with the same md5 digest")
@@ -130,6 +131,13 @@ def main():
     if len(args) < 1:
         parser.error("BUCKET not specified")
     bucket = args[0]
+    _re = re.compile("^s3://([^/]+)/?(.*)", re.IGNORECASE)
+    match = _re.match(bucket)
+    if match:
+        groups = match.groups()
+        bucket = groups[0]
+        bucket_prefix = groups[1]
+
     if len(args) < 2:
         # Exception for single-argument operations
         if bucket.lower() in ['list']:
@@ -140,13 +148,13 @@ def main():
     else:
         operation = args[1].lower()
 
-    if operation == 'list' and not bucket:
+    if (operation == 'list' or operation == 'ls') and not bucket:
         operation = 'show'
-        
+
     if options.add_prefix and options.del_prefix:
         parser.error("--add-prefix and --del-prefix options are mutually exclusive")
         return -1
-    
+
     if operation == 'copy' and not options.source_bucket:
         parser.error("Source bucket not specified")
         return -1
@@ -160,16 +168,16 @@ def main():
     # Setup operation configuration
     config = {'acl': options.acl,
               'list_marker': options.list_marker or '',
-              'list_prefix': options.list_prefix or '',
+              'list_prefix': options.list_prefix or bucket_prefix or '',
               'list_delimiter': options.list_delimiter or '',
               'aws_key': aws_key,
               'aws_secret_key': aws_secret_key,
               'secure': options.secure,
               'bucket': bucket,
-              'source_bucket': options.source_bucket, 
+              'source_bucket': options.source_bucket,
               'put_full_path': options.put_full_path,
               'put_only_new': options.put_only_new,
-              'add_prefix': options.add_prefix,
+              'add_prefix': options.add_prefix or bucket_prefix,
               'del_prefix': options.del_prefix,
               'headers': headers,
               'numthreads': options.numthreads,
@@ -188,8 +196,7 @@ def main():
 
     methods_bucket = {
        'list':   funnel.list_bucket,
-       'drop':   funnel.drop_bucket,
-       'create': funnel.create_bucket,
+       'ls':   funnel.list_bucket
     }
 
     methods_global = {
@@ -272,7 +279,7 @@ def main():
         log.critical(e)
         funnel.shutdown()
         return -1
-    
+
     funnel.shutdown()
 
 if __name__ == "__main__":
