@@ -44,7 +44,7 @@ import threading
 import socket
 import httplib
 import re
-
+import ConfigParser
 from glob import glob
 from optparse import OptionParser, SUPPRESS_HELP
 
@@ -55,12 +55,18 @@ import workerpool
 from s3funnel import S3Funnel
 from s3funnel.exceptions import FunnelError
 
+
 def main():
+    #start with config fone
+    config_file = os.path.join(os.getenv("HOME"), ".s3funnelcfg")
+
+    config = ConfigParser.SafeConfigParser({"threads":"10", "timeout":"30"})
+    config.read(config_file)
     # Parse the command line...
     usage="%prog BUCKET OPERATION [OPTIONS] [FILE]...\n" + __doc__
     parser = OptionParser(usage)
-    parser.add_option("-a", "--aws_key",    dest="aws_key", type="string", help="Overrides AWS_ACCESS_KEY_ID environment variable")
-    parser.add_option("-s", "--aws_secret_key", dest="aws_secret_key", type="string", help="Overrides AWS_SECRET_ACCESS_KEY environment variable")
+    parser.add_option("-a", "--aws_key",    dest="aws_key", default=config.get("aws", "access_key"), type="string", help="Overrides AWS_ACCESS_KEY_ID environment variable")
+    parser.add_option("-s", "--aws_secret_key", dest="aws_secret_key", default=config.get("aws", "secret_key"), type="string", help="Overrides AWS_SECRET_ACCESS_KEY environment variable")
     parser.add_option("-t", "--threads",    dest="numthreads", default=10, type="int", metavar="N", help="Number of threads to use [default: %default]")
     parser.add_option("-T", "--timeout",    dest="timeout", default=30, type="float", metavar="SECONDS", help="Socket timeout time, 0 is never [default: %default]")
     parser.add_option("--insecure",         dest="secure", action="store_false", default=True, help="Don't use secure (https) connection")
@@ -282,6 +288,8 @@ def main():
     funnel.shutdown()
 
 if __name__ == "__main__":
+
+
     log_handler = logging.StreamHandler()
     log_handler.setFormatter(logging.Formatter('%(levelname)-8s %(message)s'))
 
