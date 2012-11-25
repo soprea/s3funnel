@@ -64,20 +64,21 @@ def main():
         "secret-key": None,
         "numthreads": 10,
         "timeout": 30,
-        "insecure": True,
+        "insecure": "True",
         "list-marker": None,
         "list-prefix": None,
         "list-delimiter": "/",
         "put-acl": "private",
-        "put-full-path": "private",
-        "put-only-new": True,
+        "put-full-path": "True",
+        "put-only-new": "True",
         "put-header": None,
         "add-prefix": "",
         "del-prefix": "",
         "source-bucket": None,
-        "no-ignore-s3fs-dirs": True,
+        "no-ignore-s3fs-dirs": "True",
         "dry-run": False})
-    config.read(["/etc/.s3funnelcfg", os.path.join(os.getenv("HOME"), ".s3funnelcfg")])
+
+    config.read(os.path.join(os.getenv("HOME"), ".s3funnelcfg"))
     if not config.has_section("s3"):
         config.add_section("s3")
 
@@ -93,8 +94,8 @@ def main():
     parser.add_option("--list-prefix",      dest="list_prefix", type="string", default=config.get("s3", "list-prefix"), metavar="STRING", help="(`list` only) Limit results to a specific prefix")
     parser.add_option("--list-delimiter",   dest="list_delimiter", type="string", default=config.get("s3", "list-delimiter"), metavar="CHAR", help="(`list` only) Treat value as a delimiter for hierarchical listing")
     parser.add_option("--put-acl",          dest="acl", type="string", default=config.get("s3", "put-acl"), help="(`put` only) Set the ACL permission for each file [default: %default]")
-    parser.add_option("--put-full-path",    dest="put_full_path", action="store_true", default=config.getboolean("s3", "put-full-path"), help="(`put` only) Use the full given path as the key name, instead of just the basename")
-    parser.add_option("--put-only-new",     dest="put_only_new", action="store_true", default=config.getboolean("s3", "put-only-new"), help="(`put` only) Only PUT keys which don't already exist in the bucket with the same md5 digest")
+    parser.add_option("--put-full-path",    dest="put_full_path",   action="store_true", default=config.getboolean("s3", "put-full-path"),  help="(`put` only) Use the full given path as the key name, instead of just the basename")
+    parser.add_option("--put-only-new",     dest="put_only_new",    action="store_true", default=config.getboolean("s3", "put-only-new"),   help="(`put` only) Only PUT keys which don't already exist in the bucket with the same md5 digest")
     parser.add_option("--put-header",       dest="headers", type="string", default=config.get("s3", "put-header"), action="append", help="(`put` only) Add the specified header to the request")
     parser.add_option("--add-prefix",       dest="add_prefix", type="string", default=config.get("s3", "add-prefix"), help="(`put` and `copy` only) Add specified prefix to keys in destination bucket")
     parser.add_option("--del-prefix",       dest="del_prefix", type="string", default=config.get("s3", "del-prefix"), help="(`put` and `copy` only) Delete specified prefix from keys in destination bucket")
