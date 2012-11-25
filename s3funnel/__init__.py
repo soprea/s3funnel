@@ -36,9 +36,7 @@ class S3ToolBox(object):
     Container object for resources needed to access S3.
     This includes a connection to S3 and an instance of the bucket.
     """
-    def __init__(self, aws_key, aws_secret_key, secure):
-        self.aws_key = aws_key
-        self.aws_secret_key = aws_secret_key
+    def __init__(self,secure):
         self.secure = secure
 
         self.reset()
@@ -52,7 +50,7 @@ class S3ToolBox(object):
         if self.conn: return self.conn
 
         log.debug("Starting new S3 connection.")
-        self.conn = boto.connect_s3(self.aws_key, self.aws_secret_key, is_secure=self.secure)
+        self.conn = boto.connect_s3(is_secure=self.secure)
         return self.conn
 
     def get_bucket(self, name):
@@ -88,10 +86,7 @@ class S3Funnel(object):
     maxjobs [Default: numthreads * 2]
         Number of jobs to accept into the queue at a time (block if full)
     """
-    def __init__(self, aws_key=None, aws_secret_key=None, pool=None, **config):
-        self.aws_key = aws_key or config.get('aws_key')
-        self.aws_secret_key = aws_secret_key or config.get('aws_secret_key')
-
+    def __init__(self, pool=None, **config):
         self.config = config
         self.numthreads = config.get('numthreads', 5)
         self.maxjobs = config.get('maxjobs', self.numthreads*2)
@@ -101,7 +96,7 @@ class S3Funnel(object):
         self.conn = None
         self.buckets = {}
 
-        toolbox = S3ToolBox(self.aws_key, self.aws_secret_key, self.secure)
+        toolbox = S3ToolBox(self.secure)
         self._get_conn = toolbox.get_conn
         self._get_bucket = toolbox.get_bucket
 
@@ -114,7 +109,7 @@ class S3Funnel(object):
         if self.pool: return self.pool
 
         def toolbox_factory():
-            return S3ToolBox(self.aws_key, self.aws_secret_key, self.secure)
+            return S3ToolBox(self.secure)
         def worker_factory(job_queue):
             return workerpool.EquippedWorker(job_queue, toolbox_factory)
 
