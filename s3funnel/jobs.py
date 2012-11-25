@@ -68,7 +68,7 @@ class GetJob(Job):
             except S3ResponseError, e:
                 if e.status == 404:
                     log.error("Not found: %s" % self.key)
-                    return
+                    raise
                 else:
                     log.warning("Connection lost, reconnecting and retrying...")
                     toolbox.reset()
@@ -79,7 +79,7 @@ class GetJob(Job):
                 time.sleep((2 ** i) / 4.0) # Exponential backoff
             except IOError, e:
                 log.error("%s: '%s'" % (e.strerror, e.filename))
-                return
+                raise
 
         log.error("Failed to get: %s" % self.key)
         raise JobError()
@@ -99,15 +99,16 @@ class PutJob(Job):
         self.bucket = bucket
         self.path = path
         self.failed = failed
-        # --add-prefix logic
-        self.add_prefix = config.get('add_prefix', '')
-        self.key = "%s%s" % (self.add_prefix, self.path)
+        self.key = self.path
+        if not config.get('put_full_path'):
+            self.key = os.path.basename(self.key)
         # --del-prefix logic
         self.del_prefix = config.get('del_prefix')
         if self.del_prefix and self.key.startswith(self.del_prefix):
             self.key = self.key.replace(self.del_prefix, '', 1)
-        if not config.get('put_full_path'):
-            self.key = os.path.basename(self.key)
+        # --add-prefix logic
+        self.add_prefix = config.get('add_prefix', '')
+        self.key = "%s%s" % (self.add_prefix, self.key)
         self.retries = config.get('retry', 5)
         self.only_new = config.get('put_only_new')
         self.headers = config.get('headers', {})
@@ -141,14 +142,14 @@ class PutJob(Job):
             try:
                 bucket = toolbox.get_bucket(self.bucket)
                 if self.only_new and not self._is_new(bucket, self.key):
-                    log.info("Already exists, skipped: %s" % self.key)
+                    log.info("Already exists, skipped: s3://%s/%s", self.bucket, self.key)
                     return
                 if self.dry_run:
                     log.info("DRY RUN: PUT %s to s3://%s/%s", self.path, self.bucket, self.key)
                     return
+                log.info("PUT %s to s3://%s/%s", self.path, self.bucket, self.key)
                 k = bucket.new_key(self.key)
                 k.set_contents_from_filename(self.path, self.headers)
-                log.info("PUT %s to s3://%s/%s", self.path, self.bucket, self.key)
                 return
             except S3ResponseError, e:
                 log.warning("Connection lost, reconnecting and retrying...")
@@ -188,8 +189,8 @@ class DeleteJob(Job):
                 if self.dry_run:
                     log.info("DRY RUN: DELETE s3://%s/%s", self.bucket, self.key)
                     return
-                toolbox.get_bucket(self.bucket).delete_key(self.key)
                 log.info("DELETE s3://%s/%s", self.bucket, self.key)
+                toolbox.get_bucket(self.bucket).delete_key(self.key)
                 return
             except S3ResponseError, e:
                 log.warning("Connection lost, reconnecting and retrying...")
@@ -233,8 +234,8 @@ class CopyJob(Job):
                 if self.dry_run:
                     log.info("DRY RUN: COPY s3://%s/%s to s3://%s/%s", self.source_bucket, self.key, self.bucket, self.key)
                     return
+                log.info("COPY s3://%s/%s to s3://%s/%s", self.source_bucket, self.key, self.bucket, self.key)
                 toolbox.get_bucket(self.bucket).copy_key(self.dest_key, self.source_bucket, self.key)
-                log.info("DRY RUN: COPY s3://%s/%s to s3://%s/%s", self.source_bucket, self.key, self.bucket, self.key)
                 return
             except S3ResponseError, e:
                 log.warning("Connection lost, reconnecting and retrying...")

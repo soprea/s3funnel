@@ -131,9 +131,9 @@ class S3Funnel(object):
         "Create bucket named ``name``"
         conn = self._get_conn()
         try:
-            b = conn.create_bucket(name)
+            conn.create_bucket(name)
             log.info("Created bucket: %s" % name)
-        except BotoServerError, e:
+        except BotoServerError:
             raise FunnelError("Bucket could not be created: %s" % name, key=name)
 
     def drop_bucket(self, name, **config):
@@ -142,7 +142,7 @@ class S3Funnel(object):
         try:
             conn.delete_bucket(name)
             log.info("Deleted bucket: %s" % name)
-        except BotoServerError, e:
+        except BotoServerError:
             raise FunnelError("Bucket could not be deleted: %s" % name, key=name)
 
     def list_bucket(self, name, marker=None, prefix=None, delimiter=None, **config):
@@ -156,8 +156,8 @@ class S3Funnel(object):
         more_results = True
         k = None
 
-        log.info("Listing keys from marker: %s" % marker)
         while more_results:
+            log.info("Listing keys at %s/%s from marker: %s" , name, prefix, marker)
             try:
                 r = bucket.get_all_keys(marker=marker, prefix=prefix, delimiter=delimiter)
                 for k in r:
@@ -169,7 +169,6 @@ class S3Funnel(object):
                 raise FunnelError("Failed to list bucket: %s" % name, key=name)
             except (IncompleteRead, SocketError, BotoClientError), e:
                 log.warning("Caught exception: %r.\nRetrying..." % e)
-                time.sleep(1.0)
 
         log.info("Done listing bucket: %s" % name)
 

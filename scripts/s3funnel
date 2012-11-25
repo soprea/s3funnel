@@ -26,7 +26,7 @@ TODO:
 """
 import sys
 import logging
-
+import pprint
 log = logging.getLogger(__name__)
 s3funnel_log = logging.getLogger('s3funnel')
 boto_log = logging.getLogger('boto')
@@ -66,7 +66,7 @@ CONFIG_DEFAULTS = {"access-key": "",
         "list-prefix": "",
         "list-delimiter": "/",
         "put-acl": "private",
-        "put-full-path": "True",
+        "put-full-path": "false",
         "put-only-new": "True",
         "put-header": "",
         "add-prefix": "",
@@ -99,7 +99,7 @@ def save_cfg(config, config_file):
 def main():
     global CONFIG_DEFAULTS
     config = ConfigParser.SafeConfigParser(allow_no_value=True)
-    config_file = os.path.join(os.getenv("HOME"), ".s3funnel.cfg")
+    config_file = os.path.join(os.getenv("HOME"), ".s3funnelcfg")
 
     try:
         cfgFile = open(config_file)
@@ -142,9 +142,6 @@ def main():
     # TODO: ...
 
     options, args = parser.parse_args()
-
-    if options.verbose >0:
-        print options
 
     # Version?
     if options.version:
@@ -238,9 +235,15 @@ def main():
               'del_prefix': options.del_prefix,
               'headers': headers,
               'numthreads': options.numthreads,
-              'dry_run': options.dry_run or False,
+              'dry_run': options.dry_run,
               'ignore_s3fs_dirs': options.ignore_s3fs_dirs
               }
+
+    if options.verbose > 1:
+        print "OPTIONS: ", pprint.pformat(options)
+    if options.verbose > 0:
+        print "CONFIG: ", pprint.pformat(config)
+
     funnel = S3Funnel(**config)
 
     # Setup operation mapping
