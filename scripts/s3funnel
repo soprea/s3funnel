@@ -18,7 +18,7 @@ Bucket Operations:
     LIST   List keys in the bucket. If no bucket is given, buckets will be listed.
 """
 
-__VERSION__ = '0.6.5'
+__VERSION__ = '0.6.6'
 
 """
 TODO:
@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 s3funnel_log = logging.getLogger('s3funnel')
 boto_log = logging.getLogger('boto')
 
+
 def set_log_level(level):
     for i in [log, s3funnel_log, boto_log]:
         i.setLevel(level)
@@ -38,18 +39,18 @@ def set_log_level(level):
 
 # Official Python modules
 import os
-import sys
+# import sys
 import signal
-import threading
+# import threading
 import socket
-import httplib
+# import httplib
 import re
 import ConfigParser
 from glob import glob
 from optparse import OptionParser, SUPPRESS_HELP
 
 # Third party modules
-import workerpool
+# import workerpool
 
 # Local imports
 from s3funnel import S3Funnel
@@ -58,33 +59,51 @@ from s3funnel.exceptions import FunnelError
 
 def main():
     #start with config fone
-    config_file = os.path.join(os.getenv("HOME"), ".s3funnelcfg")
+    config = ConfigParser.SafeConfigParser(
+        {"access-key": None,
+        "secret-key": None,
+        "numthreads": 10,
+        "timeout": 30,
+        "insecure": True,
+        "list-marker": None,
+        "list-prefix": None,
+        "list-delimiter": "/",
+        "put-acl": "private",
+        "put-full-path": "private",
+        "put-only-new": True,
+        "put-header": None,
+        "add-prefix": "",
+        "del-prefix": "",
+        "source-bucket": None,
+        "no-ignore-s3fs-dirs": True,
+        "dry-run": False})
+    config.read(["/etc/.s3funnelcfg", os.path.join(os.getenv("HOME"), ".s3funnelcfg")])
+    if not config.has_section("s3"):
+        config.add_section("s3")
 
-    config = ConfigParser.SafeConfigParser({"threads":"10", "timeout":"30"})
-    config.read(config_file)
     # Parse the command line...
-    usage="%prog BUCKET OPERATION [OPTIONS] [FILE]...\n" + __doc__
+    usage = "%prog BUCKET OPERATION [OPTIONS] [FILE]...\n" + __doc__
     parser = OptionParser(usage)
-    parser.add_option("-a", "--aws_key",    dest="aws_key", default=config.get("aws", "access_key"), type="string", help="Overrides AWS_ACCESS_KEY_ID environment variable")
-    parser.add_option("-s", "--aws_secret_key", dest="aws_secret_key", default=config.get("aws", "secret_key"), type="string", help="Overrides AWS_SECRET_ACCESS_KEY environment variable")
-    parser.add_option("-t", "--threads",    dest="numthreads", default=10, type="int", metavar="N", help="Number of threads to use [default: %default]")
-    parser.add_option("-T", "--timeout",    dest="timeout", default=30, type="float", metavar="SECONDS", help="Socket timeout time, 0 is never [default: %default]")
-    parser.add_option("--insecure",         dest="secure", action="store_false", default=True, help="Don't use secure (https) connection")
-    parser.add_option("--list-marker",      dest="list_marker", type="string", default=None, metavar="KEY", help="(`list` only) Start key for list operation")
-    parser.add_option("--list-prefix",      dest="list_prefix", type="string", default=None, metavar="STRING", help="(`list` only) Limit results to a specific prefix")
-    parser.add_option("--list-delimiter",   dest="list_delimiter", type="string", default="/", metavar="CHAR", help="(`list` only) Treat value as a delimiter for hierarchical listing")
-    parser.add_option("--put-acl",          dest="acl", type="string", default="private", help="(`put` only) Set the ACL permission for each file [default: %default]")
-    parser.add_option("--put-full-path",    dest="put_full_path", action="store_true", default=True, help="(`put` only) Use the full given path as the key name, instead of just the basename")
-    parser.add_option("--put-only-new",     dest="put_only_new", action="store_true", default=True, help="(`put` only) Only PUT keys which don't already exist in the bucket with the same md5 digest")
-    parser.add_option("--put-header",       dest="headers", type="string", action="append", help="(`put` only) Add the specified header to the request")
-    parser.add_option("--add-prefix",       dest="add_prefix", type="string", default="", help="(`put` and `copy` only) Add specified prefix to keys in destination bucket")
-    parser.add_option("--del-prefix",       dest="del_prefix", type="string", default="", help="(`put` and `copy` only) Delete specified prefix from keys in destination bucket")
-    parser.add_option("--source-bucket",    dest="source_bucket", type="string", help="(`copy` only) Source bucket for files")
-    parser.add_option("--no-ignore-s3fs-dirs",    dest="ignore_s3fs_dirs", action="store_false", default=True, help="(`get` only) Don't ignore s3fs directory objects ")
+    parser.add_option("-a", "--aws_key",    dest="aws_key", default=config.get("s3", "access-key"), type="string", help="Overrides AWS_ACCESS_KEY_ID environment variable")
+    parser.add_option("-s", "--aws_secret_key", dest="aws_secret_key", default=config.get("s3", "secret-key"), type="string", help="Overrides AWS_SECRET_ACCESS_KEY environment variable")
+    parser.add_option("-t", "--threads",    dest="numthreads", default=config.getint("s3", "numthreads"), type="int", metavar="N", help="Number of threads to use [default: %default]")
+    parser.add_option("-T", "--timeout",    dest="timeout", default=config.getint("s3", "timeout"), type="float", metavar="SECONDS", help="Socket timeout time, 0 is never [default: %default]")
+    parser.add_option("--insecure",         dest="secure", action="store_false", default=config.getboolean("s3", "insecure"), help="Don't use secure (https) connection")
+    parser.add_option("--list-marker",      dest="list_marker", type="string", default=config.get("s3", "list-marker"), metavar="KEY", help="(`list` only) Start key for list operation")
+    parser.add_option("--list-prefix",      dest="list_prefix", type="string", default=config.get("s3", "list-prefix"), metavar="STRING", help="(`list` only) Limit results to a specific prefix")
+    parser.add_option("--list-delimiter",   dest="list_delimiter", type="string", default=config.get("s3", "list-delimiter"), metavar="CHAR", help="(`list` only) Treat value as a delimiter for hierarchical listing")
+    parser.add_option("--put-acl",          dest="acl", type="string", default=config.get("s3", "put-acl"), help="(`put` only) Set the ACL permission for each file [default: %default]")
+    parser.add_option("--put-full-path",    dest="put_full_path", action="store_true", default=config.getboolean("s3", "put-full-path"), help="(`put` only) Use the full given path as the key name, instead of just the basename")
+    parser.add_option("--put-only-new",     dest="put_only_new", action="store_true", default=config.getboolean("s3", "put-only-new"), help="(`put` only) Only PUT keys which don't already exist in the bucket with the same md5 digest")
+    parser.add_option("--put-header",       dest="headers", type="string", default=config.get("s3", "put-header"), action="append", help="(`put` only) Add the specified header to the request")
+    parser.add_option("--add-prefix",       dest="add_prefix", type="string", default=config.get("s3", "add-prefix"), help="(`put` and `copy` only) Add specified prefix to keys in destination bucket")
+    parser.add_option("--del-prefix",       dest="del_prefix", type="string", default=config.get("s3", "del-prefix"), help="(`put` and `copy` only) Delete specified prefix from keys in destination bucket")
+    parser.add_option("--source-bucket",    dest="source_bucket", type="string", default=config.get("s3", "source-bucket"), help="(`copy` only) Source bucket for files")
+    parser.add_option("--no-ignore-s3fs-dirs",    dest="ignore_s3fs_dirs", action="store_false", default=config.getboolean("s3", "no-ignore-s3fs-dirs"), help="(`get` only) Don't ignore s3fs directory objects ")
+    parser.add_option("-d", "--dry-run",    dest="dry_run", action="store_true", default=config.getboolean("s3", "dry-run"), help="Only show what should be uploaded or downloaded but don't actually do it. May still perform S3 requests to get bucket listings and other information though (only for file transfer commands)")
     parser.add_option("-i", "--input",      dest="input", type="string", metavar="FILE", help="Read one file per line from a FILE manifest")
     parser.add_option("-v", "--verbose",    dest="verbose", action="count", default=None, help="Enable verbose output. Use twice to enable debug output")
     parser.add_option("--version",          dest="version", action="store_true", help="Output version information and exit")
-    parser.add_option("-d", "--dry-run",    dest="dry_run", action="store_true", help="Only show what should be uploaded or downloaded but don't actually do it. May still perform S3 requests to get bucket listings and other information though (only for file transfer commands)")
 
     # Deprecated options (for backwards compatibility)
     parser.add_option("--start_key",        dest="list_marker", type="string", default=None, help=SUPPRESS_HELP)
@@ -287,9 +306,8 @@ def main():
 
     funnel.shutdown()
 
+
 if __name__ == "__main__":
-
-
     log_handler = logging.StreamHandler()
     log_handler.setFormatter(logging.Formatter('%(levelname)-8s %(message)s'))
 
