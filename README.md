@@ -71,6 +71,8 @@ This project is a clone of <https://github.com/shazow>'s s3funnel from google co
 ## Examples
 Note: Appending the -v flag will print useful progress information to stderr. Great for learning the tool.
 
+### Dry run
+    $ s3funnel -d mybukkit create
 ### Create a bucket
     $ s3funnel mybukkit create
 ### List existing buckets
