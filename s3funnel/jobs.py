@@ -34,11 +34,19 @@ class GetJob(Job):
     def __init__(self, bucket, key, failed, config={}):
         log.info
         self.bucket = bucket
-        self.key = key
         self.failed = failed
         self.retries = config.get('retry', 5)
         self.ignore_s3fs_dirs = config.get('ignore_s3fs_dirs',True)
         self.dry_run = config.get('dry_run')
+        if key.strip() and (' ' in key):
+            self.key = key
+            self.key = key.split(' ')[0]
+            self.ver = key.split(' ')[1]
+        else:
+            self.key = "null"
+            self.ver = "null"
+            log.error("Wrong format for key: %s" % key)
+           # return
 
     def _do(self, toolbox):
         for i in xrange(self.retries):
@@ -62,8 +70,13 @@ class GetJob(Job):
                     log.info("DRY RUN: GET s3://%s/%s", self.bucket, self.key)
                     return
                 # Note: This creates a file, even if the download fails
-                k.get_contents_to_filename(self.key)
-                log.info("GET s3://%s/%s", self.bucket, self.key)
+                if self.key != 'null':
+                    if self.ver == 'null':
+                        k.get_contents_to_filename(self.key)
+                        log.info("GET s3://%s/%s", self.bucket, self.key)
+                    else:
+                        k.get_contents_to_filename(self.key, version_id=self.ver)
+                        log.info("GET s3://%s/%s with version: %s", self.bucket, self.key, self.ver)
                 return
             except S3ResponseError, e:
                 if e.status == 404:
@@ -89,6 +102,44 @@ class GetJob(Job):
             self._do(toolbox)
         except JobError, e:
             os.unlink(self.key) # Remove file since download failed
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)
+
+class LookupJob(Job):
+    """Lookup the given key. Checks accessibility of the key"""
+
+    def __init__(self, bucket, key, failed, config):
+        self.bucket = bucket
+        self.key = key
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                if toolbox.get_bucket(self.bucket).lookup(self.key):
+                    log.info("OK: %s" % self.key)
+                    return
+            except S3ResponseError, e:
+                if e.status == 403 or e.status == 404:
+                    log.error("%s on %s" % (e.status, self.key))
+                    return
+                else:
+                    log.warning("Connection lost, reconnecting and retrying...")
+                    toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
+
+        log.error("Failed to lookup: %s" % self.key)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
             self.failed.put(self.key)
         except Exception, e:
             self.failed.put(e)
@@ -211,6 +262,45 @@ class DeleteJob(Job):
         except Exception, e:
             self.failed.put(e)
 
+class DeleteMultipleJob(Job):
+    "Delete the given keys from S3."
+
+    def __init__(self, bucket, keys, failed, config={}):
+        self.bucket = bucket
+        self.keys = keys
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                k = toolbox.get_bucket(self.bucket).delete_keys(self.keys)
+                if hasattr(k, 'errors') and k.errors:
+                    log.error("Failed to delete: %s" % self.keys)
+                else:
+                    log.info("Deleted: %s" % self.keys)
+                return
+            except S3ResponseError, e:
+                log.warning("Connection lost, reconnecting and retrying...")
+                toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
+            finally:
+                pass
+
+        log.error("Failed to delete: %s" % self.keys)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)
+
 class CopyJob(Job):
     "Copy the given key from another bucket."
     def __init__(self, bucket, key, failed, config={}):
@@ -245,6 +335,97 @@ class CopyJob(Job):
             except (IncompleteRead, SocketError, BotoClientError), e:
                 log.warning("Caught exception: %r.\nRetrying..." % e)
                 time.sleep((2 ** i) / 4.0) # Exponential backoff
+
+        log.error("Failed to copy: %s" % self.key)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)
+
+class SetAclJob(Job):
+    "Copy the given key from another bucket."
+
+    def __init__(self, bucket, key, failed, config={}):
+        self.bucket = bucket
+        self.key = key
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                k = toolbox.get_conn().make_request(method='HEAD', bucket=self.bucket, key=self.key)
+                if k.status == 200:
+                    log.info("Done: %s" % self.key)
+                else:
+                    log.error("%s on %s" % (k.status, self.key))
+                    raise BotoServerError
+                return
+            except S3ResponseError, e:
+                log.warning("Connection lost, reconnecting and retrying...")
+                toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
+
+        log.error("Failed to copy: %s" % self.key)
+
+    def run(self, toolbox):
+        try:
+            self._do(toolbox)
+        except JobError, e:
+            self.failed.put(self.key)
+        except Exception, e:
+            self.failed.put(e)
+
+class CheckAclJob(Job):
+    "Copy the given key from another bucket."
+
+    aws_services_owner = 'db6a261a5c90f39366dde55bd72b8db7c7ae729538e8694142b8b68fe2348bdf'
+
+    def __init__(self, bucket, key, failed, config={}):
+        self.bucket = bucket
+        self.key = key
+        self.failed = failed
+        self.retries = config.get('retry', 5)
+
+    def _do(self, toolbox):
+        for i in xrange(self.retries):
+            try:
+                ok = True
+                x = toolbox.get_bucket(self.bucket).get_acl(key_name=self.key)
+                if not x.owner.id == self.aws_services_owner:
+                    print "%s Owner wrong: %s" % (self.key, x.owner.display_name)
+                    ok = False
+                elif len(x.acl.grants) > 0:
+                    for acl in x.acl.grants:
+                        if not (acl.id == self.aws_services_owner and acl.permission == 'FULL_CONTROL'):
+                            print "%s has grant for %s" % (self.key, x.acl.grants[acl].display_name)
+                            ok = False
+                if ok:
+                    print "OK: %s" % self.key
+                return
+            except S3ResponseError, e:
+                if e.status == 404:
+                    log.warning("%s not found" % self.key)
+                    return
+                elif e.status == 403:
+                    log.warning("%s access denied" % self.key)
+                    return
+                else:
+                    log.warning("Connection lost, reconnecting and retrying...")
+                    toolbox.reset()
+            except BotoServerError, e:
+                break
+            except (IncompleteRead, SocketError, BotoClientError), e:
+                log.warning("Caught exception: %r.\nRetrying..." % e)
+                time.sleep((2 ** i) / 4.0)  # Exponential backoff
 
         log.error("Failed to copy: %s" % self.key)
 

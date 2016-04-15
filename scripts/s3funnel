@@ -13,9 +13,15 @@ Key Operations:
     GET    Get key from the bucket
     PUT    Put file into the bucket (key is the basename of the path)
     COPY   Copy keys to the bucket from another bucket.
+    BATCH-DELETE Delete files from bucket in batches.
+    LOOKUP Check if a given key can be found in the bucket.
+    CHECKACL Check ownership of given key.
+    SETACL Set ownership of given key.
 
 Bucket Operations:
     LIST   List keys in the bucket. If no bucket is given, buckets will be listed.
+    DROP   Delete bucket
+    CREATE Create a new bucket
 """
 
 __VERSION__ = '0.6.7'
@@ -117,6 +123,7 @@ def main():
     parser.add_option("--list-marker",      dest="list_marker", type="string", default=config.get("s3", "list-marker"), metavar="KEY", help="(`list` only) Start key for list operation")
     parser.add_option("--list-prefix",      dest="list_prefix", type="string", default=config.get("s3", "list-prefix"), metavar="STRING", help="(`list` only) Limit results to a specific prefix")
     parser.add_option("--list-delimiter",   dest="list_delimiter", type="string", default=config.get("s3", "list-delimiter"), metavar="CHAR", help="(`list` only) Treat value as a delimiter for hierarchical listing")
+    parser.add_option("--check-owner",      dest="check_owner", action="store_true", help="('list' only) Check that the bucket owner owns every key listed")
     parser.add_option("--put-acl",          dest="acl", type="string", default=config.get("s3", "put-acl"), help="(`put` only) Set the ACL permission for each file [default: %default]")
     parser.add_option("--put-full-path",    dest="put_full_path",   action="store_true", default=config.getboolean("s3", "put-full-path"),  help="(`put` only) Use the full given path as the key name, instead of just the basename")
     parser.add_option("--put-only-new",     dest="put_only_new",    action="store_true", default=config.getboolean("s3", "put-only-new"),   help="(`put` only) Only PUT keys which don't already exist in the bucket with the same md5 digest")
@@ -208,6 +215,7 @@ def main():
               'list_marker': options.list_marker or '',
               'list_prefix': options.list_prefix or bucket_prefix or '',
               'list_delimiter': options.list_delimiter or '',
+              'check_owner': options.check_owner,
               'secure': options.secure,
               'bucket': bucket,
               'source_bucket': options.source_bucket,
@@ -234,10 +242,17 @@ def main():
        'put':    funnel.put,
        'delete': funnel.delete,
        'copy':   funnel.copy,
+       'setacl': funnel.setacl,
+       'batch_delete': funnel.batch_delete,
+       'lookup':       funnel.lookup,
+       'checkacl':     funnel.checkacl,
+       'setacl':       funnel.setacl,
     }
 
     methods_bucket = {
-       'list':   funnel.list_bucket
+       'list':   funnel.list_bucket,
+       'drop':   funnel.drop_bucket,
+       'create': funnel.create_bucket,
     }
 
     methods_global = {
@@ -261,7 +276,7 @@ def main():
         except (IOError, IndexError), e:
             log.error("%s: File not found" % options.input)
             return -1
-        input_src = "`%s'" % options.input
+        input_src = "'%s'" % options.input
     elif len(args) < 3:
         # Get source from stdin
         input_src = "stdin"
