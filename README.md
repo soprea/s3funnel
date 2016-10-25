@@ -6,6 +6,11 @@ This project is a clone of <https://github.com/shazow>'s s3funnel from google co
 - Supports multithreaded operations for large volumes. Put, get, or delete many items concurrently, using a fixed-size pool of threads.
 - Built on workerpool for multithreading and boto for access to the Amazon S3 API.
 - Unix-friendly input and output. Pipe things in, out, and all around.
+- Install python-setuptools
+- Install s3funnel with python setup.py install
+- Add your aws access and secret key to the credentials file inside ~.aws/credentials
+- s3funnel list
+- s3funeel <bucket> list
 
 ## Usage
     Usage: s3funnel BUCKET OPERATION [OPTIONS] [FILE]...
@@ -26,10 +31,6 @@ This project is a clone of <https://github.com/shazow>'s s3funnel from google co
     
     Options:
       -h, --help            show this help message and exit
-      -a AWS_KEY, --aws_key=AWS_KEY
-                            Overrides AWS_ACCESS_KEY_ID environment variable
-      -s AWS_SECRET_KEY, --aws_secret_key=AWS_SECRET_KEY
-                            Overrides AWS_SECRET_ACCESS_KEY environment variable
       -t N, --threads=N     Number of threads to use [default: 1]
       -T SECONDS, --timeout=SECONDS
                             Socket timeout time, 0 is never [default: 0]
