@@ -85,6 +85,7 @@ Note: Appending the -v flag will print useful progress information to stderr. Gr
 ### List files in a bucket
     $ s3funnel mybukkit list
 ### Copy files from a bucket
+    $ aws s3api list-object-versions --bucket <bucket> --output text --query 'Versions[*].[Key,VersionId]'
     $ s3funnel mybukkit get -i keys.txt --threads=1 All the keys have to be one per line preceded with a space and the version. If the version is not needed, just put null. Ex.: test123.txt 3y4sCMla9CcgPxRQflfEAR0WGpLkMVss 
     $ s3funnel mybukkit get "test123.txt 3y4sCMla9CcgPxRQflfEAR0WGpLkMVss" "test1234.txt eascBGjHeZH9bXpjfg8nCFfyYrouLJxw" --threads=2
 ### Copy files from another bucket 
